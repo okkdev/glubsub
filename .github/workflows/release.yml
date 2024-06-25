@@ -2,13 +2,14 @@ name: release
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - "v*.*.*"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -27,5 +28,4 @@ jobs:
         env:
           HEXPM_USER: ${{ secrets.HEX_USERNAME }}
           HEXPM_PASS: ${{ secrets.HEX_PASSWORD }}
-
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v2
