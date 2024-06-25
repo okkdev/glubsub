@@ -16,7 +16,7 @@ type Message {
 }
 
 pub fn glubsub_test() {
-  let assert Ok(topic) = glubsub.new()
+  let assert Ok(topic) = glubsub.new_topic()
 
   let assert Ok(actor1) = actor.start(Nil, handle_message)
   let assert Ok(actor2) = actor.start(Nil, handle_message)
@@ -69,7 +69,7 @@ pub fn glubsub_test() {
   |> set.contains(actor2)
   |> should.be_false
 
-  process.sleep(200)
+  process.sleep(500)
 }
 
 fn handle_message(message: Message, state) -> actor.Next(a, Nil) {

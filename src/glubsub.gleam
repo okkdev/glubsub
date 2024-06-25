@@ -1,7 +1,12 @@
 import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/otp/actor
+import gleam/result
 import gleam/set.{type Set}
+
+pub type Topic(m) {
+  Topic(Subject(Message(m)))
+}
 
 pub opaque type Message(m) {
   Subscribe(reply_with: Subject(Result(Nil, GlubsubError)), client: Subject(m))
@@ -13,37 +18,52 @@ pub opaque type Message(m) {
   GetSubscribers(reply_with: Subject(Set(Subject(m))))
 }
 
-pub type GlubsubError {
+pub opaque type GlubsubError {
   AlreadySubscribed
   NotSubscribed
 }
 
-pub fn new() -> Result(Subject(Message(m)), actor.StartError) {
+const timeout = 1000
+
+/// Creates a new topic. Which is a pubsub channel that clients can subscribe to.
+pub fn new_topic() -> Result(Topic(m), actor.StartError) {
   actor.start(set.new(), handle_message)
+  |> result.map(fn(subject) { Topic(subject) })
 }
 
+/// Subscribes the given client to the given topic.
 pub fn subscribe(
-  topic: Subject(Message(m)),
+  topic: Topic(m),
   client: Subject(m),
 ) -> Result(Nil, GlubsubError) {
-  actor.call(topic, fn(self) { Subscribe(self, client) }, 100)
+  actor.call(
+    topic_to_subject(topic),
+    fn(self) { Subscribe(self, client) },
+    timeout,
+  )
 }
 
+/// Unsubscribes the given client from the given topic.
 pub fn unsubscribe(
-  topic: Subject(Message(m)),
+  topic: Topic(m),
   client: Subject(m),
 ) -> Result(Nil, GlubsubError) {
-  actor.call(topic, fn(self) { Unsubscribe(self, client) }, 100)
+  actor.call(
+    topic_to_subject(topic),
+    fn(self) { Unsubscribe(self, client) },
+    timeout,
+  )
 }
 
-pub fn broadcast(topic: Subject(Message(m)), message: m) -> Result(Nil, Nil) {
-  actor.send(topic, Broadcast(message))
+/// Broadcasts a message to all subscribers of the given topic.
+pub fn broadcast(topic: Topic(m), message: m) -> Result(Nil, Nil) {
+  actor.send(topic_to_subject(topic), Broadcast(message))
   |> Ok
 }
 
-@internal
-pub fn get_subscribers(topic: Subject(Message(m))) -> Set(Subject(m)) {
-  actor.call(topic, GetSubscribers, 100)
+/// Returns a set of all subscribers to the given topic.
+pub fn get_subscribers(topic: Topic(m)) -> Set(Subject(m)) {
+  actor.call(topic_to_subject(topic), GetSubscribers, timeout)
 }
 
 fn handle_message(
@@ -86,5 +106,11 @@ fn handle_message(
       actor.send(reply, subs)
       actor.continue(subs)
     }
+  }
+}
+
+fn topic_to_subject(topic: Topic(m)) -> Subject(Message(m)) {
+  case topic {
+    Topic(subject) -> subject
   }
 }
