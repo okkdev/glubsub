@@ -1,3 +1,6 @@
+//// This module implements a simple pubsub system using gleam actors.
+////
+
 import gleam/erlang/process.{type ProcessMonitor, type Selector, type Subject}
 import gleam/list
 import gleam/otp/actor
