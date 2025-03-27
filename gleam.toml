@@ -1,5 +1,5 @@
 name = "glubsub"
-version = "1.0.1"
+version = "1.1.0"
 
 description = "A simple PubSub library using Gleam actors"
 licences = ["Apache-2.0"]
