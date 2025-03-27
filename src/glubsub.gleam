@@ -182,10 +182,7 @@ fn remove_subscriber(
   subscribers: List(Subscriber(m)),
   unsubscriber: Subscriber(m),
 ) -> List(Subscriber(m)) {
-  subscribers
-  |> list.pop(fn(sub) { sub == unsubscriber })
-  |> result.map(fn(res) { res.1 })
-  |> result.unwrap(subscribers)
+  list.filter(subscribers, fn(sub) { sub != unsubscriber })
 }
 
 fn selector_down_from_subscribers(
