@@ -1,7 +1,7 @@
 //// This module implements a simple pubsub system using gleam actors.
 ////
 
-import gleam/erlang/process.{type ProcessMonitor, type Selector, type Subject}
+import gleam/erlang/process.{type Monitor, type Selector, type Subject}
 import gleam/list
 import gleam/otp/actor
 import gleam/result
@@ -18,7 +18,7 @@ pub opaque type Message(m) {
   )
   Broadcast(message: m)
   GetSubscribers(reply_with: Subject(List(Subscriber(m))))
-  SubscriberDown(process.ProcessDown)
+  SubscriberDown(process.Down)
   Shutdown
 }
 
@@ -33,22 +33,29 @@ type State(m) {
 }
 
 pub type Subscriber(m) {
-  Subscriber(client: Subject(m), monitor: ProcessMonitor)
+  Subscriber(client: Subject(m), monitor: Monitor)
 }
 
 const timeout = 1000
 
 /// Creates a new topic. Which is a pubsub channel that clients can subscribe to.
 pub fn new_topic() -> Result(Topic(m), GlubsubError) {
-  actor.start_spec(actor.Spec(
-    init: fn() {
-      let selector = process.new_selector()
-      actor.Ready(State(subscribers: [], selector: selector), selector)
-    },
-    init_timeout: timeout,
-    loop: handle_message,
-  ))
-  |> result.map(fn(subject) { Topic(subject) })
+  actor.new_with_initialiser(timeout, fn(subject) {
+    let selector =
+      process.new_selector()
+      |> process.select(subject)
+      |> process.select_monitors(SubscriberDown)
+    actor.initialised(State(subscribers: [], selector: selector))
+    |> actor.selecting(selector)
+    |> actor.returning(subject)
+    |> Ok()
+  })
+  |> actor.on_message(handle_message)
+  |> actor.start()
+  |> result.map(fn(started) {
+    let actor.Started(data: subject, ..) = started
+    Topic(subject)
+  })
   |> result.map_error(fn(err) { StartError(err) })
 }
 
@@ -62,11 +69,9 @@ pub fn subscribe(
   topic: Topic(m),
   client: Subject(m),
 ) -> Result(Nil, GlubsubError) {
-  actor.call(
-    topic_to_subject(topic),
-    fn(self) { Subscribe(self, client) },
-    timeout,
-  )
+  actor.call(topic_to_subject(topic), timeout, fn(self) {
+    Subscribe(self, client)
+  })
 }
 
 /// Unsubscribes the given client from the given topic.
@@ -74,11 +79,9 @@ pub fn unsubscribe(
   topic: Topic(m),
   client: Subject(m),
 ) -> Result(Nil, GlubsubError) {
-  actor.call(
-    topic_to_subject(topic),
-    fn(self) { Unsubscribe(self, client) },
-    timeout,
-  )
+  actor.call(topic_to_subject(topic), timeout, fn(self) {
+    Unsubscribe(self, client)
+  })
 }
 
 /// Broadcasts a message to all subscribers of the given topic.
@@ -89,13 +92,13 @@ pub fn broadcast(topic: Topic(m), message: m) -> Result(Nil, Nil) {
 
 /// Returns a set of all subscribers to the given topic.
 pub fn get_subscribers(topic: Topic(m)) -> List(Subscriber(m)) {
-  actor.call(topic_to_subject(topic), GetSubscribers, timeout)
+  actor.call(topic_to_subject(topic), timeout, GetSubscribers)
 }
 
 fn handle_message(
-  message: Message(m),
   state: State(m),
-) -> actor.Next(Message(m), State(m)) {
+  message: Message(m),
+) -> actor.Next(State(m), Message(m)) {
   case message {
     Subscribe(reply, client) -> {
       case list.find(state.subscribers, fn(sub) { sub.client == client }) {
@@ -104,19 +107,24 @@ fn handle_message(
           actor.continue(state)
         }
         Error(Nil) -> {
-          let monitor = process.monitor_process(process.subject_owner(client))
-          let new_selector =
-            state.selector
-            |> process.selecting_process_down(monitor, SubscriberDown)
+          case process.subject_owner(client) {
+            Ok(pid) -> {
+              let monitor = process.monitor(pid)
 
-          let new_subs = [
-            Subscriber(client: client, monitor: monitor),
-            ..state.subscribers
-          ]
+              let new_subs = [
+                Subscriber(client: client, monitor: monitor),
+                ..state.subscribers
+              ]
 
-          actor.send(reply, Ok(Nil))
-          actor.continue(State(subscribers: new_subs, selector: new_selector))
-          |> actor.with_selector(new_selector)
+              actor.send(reply, Ok(Nil))
+              actor.continue(State(..state, subscribers: new_subs))
+            }
+            Error(_) -> {
+              // Subject was for a named process which has died between calling
+              // us and us trying to monitor them -> ignore
+              actor.continue(state)
+            }
+          }
         }
       }
     }
@@ -129,12 +137,8 @@ fn handle_message(
         Ok(unsub) -> {
           let new_subs = remove_subscriber(state.subscribers, unsub)
 
-          let new_selector =
-            process.new_selector()
-            |> selector_down_from_subscribers(new_subs)
-
           actor.send(reply, Ok(Nil))
-          actor.continue(State(subscribers: new_subs, selector: new_selector))
+          actor.continue(State(..state, subscribers: new_subs))
         }
       }
     }
@@ -147,10 +151,11 @@ fn handle_message(
       actor.send(reply, state.subscribers)
       actor.continue(state)
     }
-    SubscriberDown(client) -> {
+    SubscriberDown(process.ProcessDown(pid:, ..)) -> {
+      let ok_pid = Ok(pid)
       case
         state.subscribers
-        |> list.find(fn(sub) { process.subject_owner(sub.client) == client.pid })
+        |> list.find(fn(sub) { process.subject_owner(sub.client) == ok_pid })
       {
         Error(Nil) -> {
           actor.continue(state)
@@ -159,16 +164,14 @@ fn handle_message(
           process.demonitor_process(unsub.monitor)
           let new_subs = remove_subscriber(state.subscribers, unsub)
 
-          let new_selector =
-            process.new_selector()
-            |> selector_down_from_subscribers(new_subs)
-
-          actor.continue(State(subscribers: new_subs, selector: new_selector))
+          actor.continue(State(..state, subscribers: new_subs))
         }
       }
     }
+    // A monitored port is down, which should never happen -> ignore
+    SubscriberDown(_) -> actor.continue(state)
     Shutdown -> {
-      actor.Stop(process.Normal)
+      actor.stop()
     }
   }
 }
@@ -183,13 +186,4 @@ fn remove_subscriber(
   unsubscriber: Subscriber(m),
 ) -> List(Subscriber(m)) {
   list.filter(subscribers, fn(sub) { sub != unsubscriber })
-}
-
-fn selector_down_from_subscribers(
-  selector: Selector(Message(m)),
-  subscribers: List(Subscriber(m)),
-) -> Selector(Message(m)) {
-  list.fold(subscribers, selector, fn(selector, sub) {
-    process.selecting_process_down(selector, sub.monitor, SubscriberDown)
-  })
 }
