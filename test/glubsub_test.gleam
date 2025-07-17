@@ -19,8 +19,8 @@ type Message {
 pub fn glubsub_subscribe_test() {
   let assert Ok(topic) = glubsub.new_topic()
 
-  let assert Ok(actor1) = actor.start(Nil, handle_message)
-  let assert Ok(actor2) = actor.start(Nil, handle_message)
+  let actor1 = start_actor()
+  let actor2 = start_actor()
 
   glubsub.subscribe(topic, actor1)
   |> should.be_ok
@@ -68,8 +68,8 @@ pub fn glubsub_subscribe_test() {
 pub fn glubsub_cleanup_test() {
   let assert Ok(topic) = glubsub.new_topic()
 
-  let assert Ok(actor1) = actor.start(Nil, handle_message)
-  let assert Ok(actor2) = actor.start(Nil, handle_message)
+  let actor1 = start_actor()
+  let actor2 = start_actor()
 
   glubsub.subscribe(topic, actor1)
   |> should.be_ok
@@ -114,8 +114,8 @@ pub fn glubsub_cleanup_test() {
 pub fn glubsub_broadcast_test() {
   let assert Ok(topic) = glubsub.new_topic()
 
-  let assert Ok(actor1) = actor.start(Nil, handle_message)
-  let assert Ok(actor2) = actor.start(Nil, handle_message)
+  let actor1 = start_actor()
+  let actor2 = start_actor()
 
   glubsub.subscribe(topic, actor1)
   |> should.be_ok
@@ -138,17 +138,22 @@ pub fn glubsub_destroy_test() {
   let assert Ok(topic) = glubsub.new_topic()
   let glubsub.Topic(s) = topic
 
-  process.is_alive(process.subject_owner(s))
+  let assert Ok(pid) = process.subject_owner(s)
+  process.is_alive(pid)
   |> should.be_true
 
   glubsub.destroy_topic(topic)
   |> should.equal(Nil)
 
-  process.is_alive(process.subject_owner(s))
+  // Prevent timing issues with waiting for process death
+  process.sleep(500)
+
+  let assert Ok(pid) = process.subject_owner(s)
+  process.is_alive(pid)
   |> should.be_false
 }
 
-fn handle_message(message: Message, state) -> actor.Next(a, Nil) {
+fn handle_message(state: Nil, message: Message) -> actor.Next(Nil, a) {
   case message {
     Hello(x) -> {
       x
@@ -161,6 +166,12 @@ fn handle_message(message: Message, state) -> actor.Next(a, Nil) {
       |> should.equal("You")
       actor.continue(state)
     }
-    Shutdown -> actor.Stop(process.Normal)
+    Shutdown -> actor.stop()
   }
+}
+
+fn start_actor() {
+  let assert Ok(actor.Started(data:, ..)) =
+    actor.new(Nil) |> actor.on_message(handle_message) |> actor.start()
+  data
 }
