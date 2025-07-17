@@ -2,7 +2,6 @@ import gleam/erlang/process
 import gleam/list
 import gleam/otp/actor
 import gleeunit
-import gleeunit/should
 
 import glubsub
 
@@ -10,7 +9,7 @@ pub fn main() {
   gleeunit.main()
 }
 
-type Message {
+pub type Message {
   Hello(String)
   Hi(String)
   Shutdown
@@ -22,47 +21,30 @@ pub fn glubsub_subscribe_test() {
   let actor1 = start_actor()
   let actor2 = start_actor()
 
-  glubsub.subscribe(topic, actor1)
-  |> should.be_ok
-  glubsub.subscribe(topic, actor1)
-  |> should.be_error
+  let assert Ok(_) = glubsub.subscribe(topic, actor1)
+  let assert Error(_) = glubsub.subscribe(topic, actor1)
 
-  glubsub.subscribe(topic, actor2)
-  |> should.be_ok
+  let assert Ok(_) = glubsub.subscribe(topic, actor2)
 
   let subs1 = glubsub.get_subscribers(topic)
 
-  subs1
-  |> list.length
-  |> should.equal(2)
+  assert list.length(subs1) == 2
 
-  subs1
-  |> list.find(fn(sub) { sub.client == actor1 })
-  |> should.be_ok
+  let assert Ok(_) = list.find(subs1, fn(sub) { sub.client == actor1 })
 
-  subs1
-  |> list.find(fn(sub) { sub.client == actor2 })
-  |> should.be_ok
+  let assert Ok(_) = list.find(subs1, fn(sub) { sub.client == actor2 })
 
-  glubsub.unsubscribe(topic, actor2)
-  |> should.be_ok
+  let assert Ok(_) = glubsub.unsubscribe(topic, actor2)
 
-  glubsub.unsubscribe(topic, actor2)
-  |> should.be_error
+  let assert Error(_) = glubsub.unsubscribe(topic, actor2)
 
   let subs2 = glubsub.get_subscribers(topic)
 
-  subs2
-  |> list.length
-  |> should.equal(1)
+  assert list.length(subs2) == 1
 
-  subs2
-  |> list.find(fn(sub) { sub.client == actor1 })
-  |> should.be_ok
+  let assert Ok(_) = list.find(subs2, fn(sub) { sub.client == actor1 })
 
-  subs2
-  |> list.find(fn(sub) { sub.client == actor2 })
-  |> should.be_error
+  let assert Error(_) = list.find(subs2, fn(sub) { sub.client == actor2 })
 }
 
 pub fn glubsub_cleanup_test() {
@@ -71,44 +53,29 @@ pub fn glubsub_cleanup_test() {
   let actor1 = start_actor()
   let actor2 = start_actor()
 
-  glubsub.subscribe(topic, actor1)
-  |> should.be_ok
-  glubsub.subscribe(topic, actor1)
-  |> should.be_error
+  let assert Ok(_) = glubsub.subscribe(topic, actor1)
+  let assert Error(_) = glubsub.subscribe(topic, actor1)
 
-  glubsub.subscribe(topic, actor2)
-  |> should.be_ok
+  let assert Ok(_) = glubsub.subscribe(topic, actor2)
 
   let subs1 = glubsub.get_subscribers(topic)
 
-  subs1
-  |> list.length
-  |> should.equal(2)
+  assert list.length(subs1) == 2
 
-  subs1
-  |> list.find(fn(sub) { sub.client == actor1 })
-  |> should.be_ok
+  let assert Ok(_) = list.find(subs1, fn(sub) { sub.client == actor1 })
 
-  subs1
-  |> list.find(fn(sub) { sub.client == actor2 })
-  |> should.be_ok
+  let assert Ok(_) = list.find(subs1, fn(sub) { sub.client == actor2 })
 
   actor.send(actor2, Shutdown)
   process.sleep(100)
 
   let subs2 = glubsub.get_subscribers(topic)
 
-  subs2
-  |> list.length
-  |> should.equal(1)
+  assert list.length(subs2) == 1
 
-  subs2
-  |> list.find(fn(sub) { sub.client == actor1 })
-  |> should.be_ok
+  let assert Ok(_) = list.find(subs2, fn(sub) { sub.client == actor1 })
 
-  subs2
-  |> list.find(fn(sub) { sub.client == actor2 })
-  |> should.be_error
+  let assert Error(_) = list.find(subs2, fn(sub) { sub.client == actor2 })
 }
 
 pub fn glubsub_broadcast_test() {
@@ -117,19 +84,14 @@ pub fn glubsub_broadcast_test() {
   let actor1 = start_actor()
   let actor2 = start_actor()
 
-  glubsub.subscribe(topic, actor1)
-  |> should.be_ok
-  glubsub.subscribe(topic, actor1)
-  |> should.be_error
+  let assert Ok(_) = glubsub.subscribe(topic, actor1)
+  let assert Error(_) = glubsub.subscribe(topic, actor1)
 
-  glubsub.subscribe(topic, actor2)
-  |> should.be_ok
+  let assert Ok(_) = glubsub.subscribe(topic, actor2)
 
-  glubsub.broadcast(topic, Hello("Louis"))
-  |> should.be_ok
+  let assert Ok(_) = glubsub.broadcast(topic, Hello("Louis"))
 
-  glubsub.broadcast(topic, Hi("You"))
-  |> should.be_ok
+  let assert Ok(_) = glubsub.broadcast(topic, Hi("You"))
 
   process.sleep(200)
 }
@@ -139,31 +101,26 @@ pub fn glubsub_destroy_test() {
   let glubsub.Topic(s) = topic
 
   let assert Ok(pid) = process.subject_owner(s)
-  process.is_alive(pid)
-  |> should.be_true
+  assert process.is_alive(pid)
 
-  glubsub.destroy_topic(topic)
-  |> should.equal(Nil)
+  assert glubsub.destroy_topic(topic) == Nil
 
   // Prevent timing issues with waiting for process death
   process.sleep(500)
 
   let assert Ok(pid) = process.subject_owner(s)
-  process.is_alive(pid)
-  |> should.be_false
+  assert !process.is_alive(pid)
 }
 
 fn handle_message(state: Nil, message: Message) -> actor.Next(Nil, a) {
   case message {
     Hello(x) -> {
-      x
-      |> should.equal("Louis")
+      assert x == "Louis"
       actor.continue(state)
     }
 
     Hi(x) -> {
-      x
-      |> should.equal("You")
+      assert x == "You"
       actor.continue(state)
     }
     Shutdown -> actor.stop()
