@@ -3,7 +3,9 @@
 [![Package Version](https://img.shields.io/hexpm/v/glubsub)](https://hex.pm/packages/glubsub)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/glubsub/)
 
-tiny pubsub inspired abstraction.
+tiny pubsub lib using actors.
+
+It's probably smarter to use [group_registry](https://github.com/lpil/group_registry) now.
 
 ```sh
 gleam add glubsub
